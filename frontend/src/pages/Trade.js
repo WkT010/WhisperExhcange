@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createChart } from '../../../tvcharts/src/api/create-chart.js';
 
 function TabSwitcher({tab, setTab}) {
   return (
@@ -29,12 +30,55 @@ export default function Trade() {
   const [qty, setQty] = useState('');
   const [message, setMessage] = useState('');
 
+  const chartContainerRef = useRef();
+  const chartRef = useRef();
+  const seriesRef = useRef();
+
   useEffect(() => {
     const query = tab==='spot' ? '' : '/futures';
     fetch(`/api/binance${query}/ticker?symbol=${symbol}`).then(res=>res.json()).then(setTicker);
     fetch(`/api/binance${query}/depth?symbol=${symbol}&limit=10`).then(r=>r.json()).then(setDepth);
-    fetch(`/api/binance${query}/klines?symbol=${symbol}&interval=1m&limit=60`).then(r=>r.json()).then(setKline);
+    fetch(`/api/binance${query}/klines?symbol=${symbol}&interval=1m&limit=120`).then(r=>r.json()).then(setKline);
   }, [symbol, tab]);
+
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+    if (chartRef.current) {
+      chartRef.current.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    }
+    chartRef.current = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 260,
+      layout: {
+        background: { color: "#19191f" },
+        textColor: "#ffe29b"
+      },
+      grid: { 
+        vertLines: { color: '#353540' }, 
+        horzLines: { color: '#353540' }
+      },
+      rightPriceScale: { borderColor: '#71649C' },
+      timeScale: { borderColor: '#71649C', timeVisible: true, secondsVisible: false },
+    });
+    seriesRef.current = chartRef.current.addCandlestickSeries();
+    if (kline?.length) {
+      const data = kline.map(item => ({
+        time: Math.floor(item[0] / 1000),
+        open: Number(item[1]),
+        high: Number(item[2]),
+        low: Number(item[3]),
+        close: Number(item[4]),
+      }));
+      seriesRef.current.setData(data);
+      chartRef.current.timeScale().fitContent();
+    }
+    return () => {
+      if (chartRef.current) chartRef.current.remove();
+    };
+  // eslint-disable-next-line
+  }, [kline, symbol, tab]);
 
   async function submitOrder(e) {
     e.preventDefault();
@@ -69,12 +113,12 @@ export default function Trade() {
         <tbody>
         {
           !depth ? null :
-          Array.from({ length: Math.max(depth.bids.length, depth.asks.length) }).map((_,i) => (
+          Array.from({ length: Math.max(depth?.bids?.length||0, depth?.asks?.length||0) }).map((_,i) => (
             <tr key={i}>
-              <td style={{color:'green'}}>{depth.bids[i]?.[0] || '--'}</td>
-              <td>{depth.bids[i]?.[1] || ''}</td>
-              <td style={{color:'red'}}>{depth.asks[i]?.[0] || '--'}</td>
-              <td>{depth.asks[i]?.[1] || ''}</td>
+              <td style={{color:'green'}}>{depth.bids?.[i]?.[0] || '--'}</td>
+              <td>{depth.bids?.[i]?.[1] || ''}</td>
+              <td style={{color:'red'}}>{depth.asks?.[i]?.[0] || '--'}</td>
+              <td>{depth.asks?.[i]?.[1] || ''}</td>
             </tr>
           ))
         }
@@ -91,20 +135,8 @@ export default function Trade() {
         <button type='submit'>下单</button>
         {message && <div style={{color:message.startsWith('下单成功')?'green':'red',marginTop:8}} dangerouslySetInnerHTML={{__html:message}} />}
       </form>
-      <h4>K线 (1min, 最近1小时)</h4>
-      <div style={{background:'#18181a',height:200,overflowX:'scroll',whiteSpace:'nowrap'}}>
-        {
-          kline && kline.map?.((k,i)=>(
-            <div key={i} style={{
-              display:'inline-block',height:180,
-              borderLeft:`2px solid ${Number(k[4])>Number(k[1])?'#16d358':'#ff2121'}`,
-              marginLeft:2,verticalAlign:'bottom'
-            }} title={`开:${k[1]} 收:${k[4]}`}>
-              <div style={{height:Math.abs((k[4]-k[1])/k[1])*160+8}} />
-            </div>
-          ))
-        }
-      </div>
+      <h4>K线 (1min, 最近2小时) — TradingView lightweight-charts</h4>
+      <div ref={chartContainerRef} style={{width:'100%',height:260,background:'#18181a'}} />
     </div>
   );
 }
